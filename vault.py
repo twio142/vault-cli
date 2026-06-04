@@ -1,10 +1,14 @@
+#!/usr/bin/env python3
 import fnmatch
 import hashlib
 import json
 import os
 import subprocess
 import sys
+import warnings
 from pathlib import Path
+
+warnings.filterwarnings("ignore", message=".*mean pooling.*")
 
 import click
 import lancedb
@@ -19,7 +23,7 @@ SCHEMA = pa.schema([
     pa.field("title",   pa.string()),
     pa.field("mtime",   pa.float64()),
     pa.field("preview", pa.string()),
-    pa.field("vector",  pa.list_(pa.float32(), 1024)),
+    pa.field("vector",  pa.list_(pa.float32(), 384)),
 ])
 
 _EXCLUDED_DIRS = {".obsidian", "_assets"}
@@ -160,11 +164,16 @@ def build_backlinks(metadata: dict) -> dict:
 # Index helpers
 # ---------------------------------------------------------------------------
 
+def _table_names(db) -> list:
+    r = db.list_tables()
+    return getattr(r, "tables", None) or list(r)
+
+
 def open_table(cache: Path, force: bool):
     db = lancedb.connect(str(cache))
-    if force and "notes" in db.table_names():
-        db.drop_table("notes")
-    if "notes" in db.table_names():
+    if force:
+        return db.create_table("notes", schema=SCHEMA, mode="overwrite")
+    if "notes" in _table_names(db):
         return db.open_table("notes")
     return db.create_table("notes", schema=SCHEMA)
 
@@ -232,7 +241,11 @@ def embed_notes(model, vault_dir: Path, paths: list, metadata: dict) -> list:
         meta = metadata.get(p.name, metadata.get(rel, {}))
         title = meta.get("fileName", p.stem)
         headings = [h["heading"] for h in meta.get("headings", [])]
-        body = p.read_text(encoding="utf-8", errors="replace")
+        try:
+            body = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            print(f"  skipping {rel} (not readable)", file=sys.stderr)
+            continue
         preview = body[:300].replace("\t", " ").replace("\n", " ")
         embed_text = "\n\n".join(filter(None, [
             title,
@@ -245,7 +258,7 @@ def embed_notes(model, vault_dir: Path, paths: list, metadata: dict) -> list:
     rows, done = [], 0
     for i in range(0, total, 32):
         batch = texts[i:i + 32]
-        vecs = model.encode(batch, normalize_embeddings=True, show_progress_bar=False)
+        vecs = list(model.embed(batch))
         for j, vec in enumerate(vecs):
             rows.append({**metas[i + j], "vector": vec.tolist()})
         done += len(batch)
@@ -273,10 +286,21 @@ def cmd_index(force):
     all_paths = walk_vault(vault)
     total = len(all_paths)
 
+    all_rels = {str(p.relative_to(vault)) for p in all_paths}
+
     if force:
         changed = all_paths
     else:
         changed = diff_notes(table, vault, all_paths)
+        try:
+            df = table.to_pandas()
+            if not df.empty:
+                deleted = set(df["path"]) - all_rels
+                if deleted:
+                    escaped = ", ".join("'" + r.replace("'", "''") + "'" for r in deleted)
+                    table.delete(f"path IN ({escaped})")
+        except Exception:
+            pass
 
     updated = len(changed)
     if updated == 0:
@@ -288,8 +312,8 @@ def cmd_index(force):
         escaped = ", ".join("'" + r.replace("'", "''") + "'" for r in rel_paths)
         table.delete(f"path IN ({escaped})")
 
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer("BAAI/bge-m3")
+    from fastembed import TextEmbedding
+    model = TextEmbedding("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     metadata = load_metadata(vault, cache)
     rows = embed_notes(model, vault, changed, metadata)
     table.add(rows)
@@ -303,20 +327,21 @@ def cmd_search(query, k):
     vault = find_vault_root()
     cache = cache_dir(vault)
     db = lancedb.connect(str(cache))
-    if "notes" not in db.table_names():
+    if "notes" not in _table_names(db):
         click.echo("Error: No index found. Run 'vault index' first.", err=True)
         sys.exit(1)
     table = db.open_table("notes")
 
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer("BAAI/bge-m3")
-    vec = model.encode([query], normalize_embeddings=True)[0]
+    from fastembed import TextEmbedding
+    model = TextEmbedding("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+    vec = list(model.embed([query]))[0]
 
     results = table.search(vec).metric("cosine").limit(k).to_list()
-    for r in results:
-        score = 1.0 - r["_distance"]
-        preview = r["preview"][:120].replace("\t", " ").replace("\n", " ")
-        click.echo(f"{r['path']}\t{score:.4f}\t{preview}")
+    output = [
+        {"path": r["path"], "score": round(1.0 - r["_distance"], 4), "preview": r["preview"][:120]}
+        for r in results
+    ]
+    click.echo(json.dumps(output, ensure_ascii=False))
 
 
 @cli.command("neighbors")
@@ -346,12 +371,10 @@ def cmd_neighbors(note_path):
         click.echo("Warning: Could not retrieve link data. Is Obsidian running?", err=True)
         links, backlinks = [], []
 
-    click.echo("links:")
-    for lnk in sorted(set(links)):
-        click.echo(f"  {lnk}")
-    click.echo("backlinks:")
-    for bl in sorted(set(backlinks)):
-        click.echo(f"  {bl}")
+    click.echo(json.dumps({
+        "links": sorted(set(links)),
+        "backlinks": sorted(set(backlinks)),
+    }, ensure_ascii=False))
 
 
 @cli.command("read")
