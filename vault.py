@@ -1,3 +1,4 @@
+import fnmatch
 import hashlib
 import json
 import os
@@ -168,11 +169,42 @@ def open_table(cache: Path, force: bool):
     return db.create_table("notes", schema=SCHEMA)
 
 
+def load_vaultignore(vault_dir: Path) -> list:
+    ignore_file = vault_dir / ".vaultignore"
+    if not ignore_file.exists():
+        return []
+    patterns = []
+    with open(ignore_file, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                patterns.append(line)
+    return patterns
+
+
+def is_ignored(rel: Path, patterns: list) -> bool:
+    rel_str = rel.as_posix()
+    for pattern in patterns:
+        if pattern.endswith("/"):
+            dir_name = pattern.rstrip("/")
+            if any(fnmatch.fnmatch(part, dir_name) for part in rel.parts[:-1]):
+                return True
+        else:
+            if (fnmatch.fnmatch(rel.name, pattern)
+                    or fnmatch.fnmatch(rel_str, pattern)
+                    or any(fnmatch.fnmatch(part, pattern) for part in rel.parts[:-1])):
+                return True
+    return False
+
+
 def walk_vault(vault_dir: Path) -> list:
+    ignore_patterns = load_vaultignore(vault_dir)
     result = []
     for p in vault_dir.rglob("*.md"):
-        parts = set(p.relative_to(vault_dir).parts[:-1])
-        if parts & _EXCLUDED_DIRS:
+        rel = p.relative_to(vault_dir)
+        if set(rel.parts[:-1]) & _EXCLUDED_DIRS:
+            continue
+        if ignore_patterns and is_ignored(rel, ignore_patterns):
             continue
         result.append(p)
     return result
