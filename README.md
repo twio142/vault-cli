@@ -37,7 +37,7 @@ Only re-embeds notes that changed since the last run. Use `--force` to rebuild f
 ./vault.py search "your query" --k 10
 ```
 
-Returns a JSON array of `{path, score, preview}` objects. Cross-lingual queries work — an English query will match Chinese or Japanese notes on the same topic.
+Returns a JSON array of `{path, block, heading, score, text}` objects — results point to specific sections within notes, not just the note as a whole. Cross-lingual queries work — an English query will match Chinese or Japanese notes on the same topic.
 
 ### Read a note
 

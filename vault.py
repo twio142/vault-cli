@@ -3,6 +3,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import warnings
@@ -20,9 +21,11 @@ import pyarrow as pa
 
 SCHEMA = pa.schema([
     pa.field("path",    pa.string()),
+    pa.field("block",   pa.string()),
     pa.field("title",   pa.string()),
+    pa.field("heading", pa.string()),
     pa.field("mtime",   pa.float64()),
-    pa.field("preview", pa.string()),
+    pa.field("text",    pa.string()),
     pa.field("vector",  pa.list_(pa.float32(), 384)),
 ])
 
@@ -161,6 +164,67 @@ def build_backlinks(metadata: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Block splitting
+# ---------------------------------------------------------------------------
+
+_HEADING_RE = re.compile(r'^(#{1,6})\s+(.*)', re.MULTILINE)
+_MIN_BLOCK = 50
+_MAX_BLOCK = 2000
+
+
+def _slugify(text: str) -> str:
+    s = text.lower()
+    s = re.sub(r'[^\w\s-]', '', s)
+    s = re.sub(r'[\s_]+', '-', s)
+    return re.sub(r'-+', '-', s).strip('-') or "block"
+
+
+def split_blocks(body: str, title: str) -> list:
+    lines = body.splitlines(keepends=True)
+    segments = []
+    cur_heading, cur_lines = "", []
+    for line in lines:
+        m = _HEADING_RE.match(line)
+        if m:
+            segments.append((cur_heading, cur_lines))
+            cur_heading, cur_lines = m.group(2).strip(), [line]
+        else:
+            cur_lines.append(line)
+    segments.append((cur_heading, cur_lines))
+
+    blocks, slug_counts = [], {}
+    for heading, seg_lines in segments:
+        text = "".join(seg_lines).strip()
+        if len(text) < _MIN_BLOCK:
+            continue
+        base = _slugify(heading) if heading else "intro"
+        count = slug_counts.get(base, 0) + 1
+        slug_counts[base] = count
+        slug = base if count == 1 else f"{base}-{count}"
+
+        if len(text) <= _MAX_BLOCK:
+            blocks.append({"block": slug, "heading": heading, "text": text})
+        else:
+            parts = [p for p in re.split(r'\n\n+', text) if p.strip()]
+            sub, sub_len, idx = [], 0, 1
+            for part in parts:
+                if sub_len + len(part) > _MAX_BLOCK and sub:
+                    chunk = "\n\n".join(sub).strip()
+                    if len(chunk) >= _MIN_BLOCK:
+                        blocks.append({"block": f"{slug}-{idx}", "heading": heading, "text": chunk})
+                        idx += 1
+                    sub, sub_len = [part], len(part)
+                else:
+                    sub.append(part)
+                    sub_len += len(part)
+            if sub:
+                chunk = "\n\n".join(sub).strip()
+                if len(chunk) >= _MIN_BLOCK:
+                    blocks.append({"block": f"{slug}-{idx}", "heading": heading, "text": chunk})
+    return blocks
+
+
+# ---------------------------------------------------------------------------
 # Index helpers
 # ---------------------------------------------------------------------------
 
@@ -172,10 +236,10 @@ def _table_names(db) -> list:
 def open_table(cache: Path, force: bool):
     db = lancedb.connect(str(cache))
     if force:
-        return db.create_table("notes", schema=SCHEMA, mode="overwrite")
-    if "notes" in _table_names(db):
-        return db.open_table("notes")
-    return db.create_table("notes", schema=SCHEMA)
+        return db.create_table("blocks", schema=SCHEMA, mode="overwrite")
+    if "blocks" in _table_names(db):
+        return db.open_table("blocks")
+    return db.create_table("blocks", schema=SCHEMA)
 
 
 def load_vaultignore(vault_dir: Path) -> list:
@@ -233,36 +297,31 @@ def diff_notes(table, vault_dir: Path, all_paths: list) -> list:
     return changed
 
 
-def embed_notes(model, vault_dir: Path, paths: list, metadata: dict) -> list:
-    total = len(paths)
-    texts, metas = [], []
+def embed_blocks(model, vault_dir: Path, paths: list, metadata: dict) -> list:
+    all_blocks = []
     for p in paths:
         rel = str(p.relative_to(vault_dir))
         meta = metadata.get(p.name, metadata.get(rel, {}))
         title = meta.get("fileName", p.stem)
-        headings = [h["heading"] for h in meta.get("headings", [])]
         try:
             body = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             print(f"  skipping {rel} (not readable)", file=sys.stderr)
             continue
-        preview = body[:300].replace("\t", " ").replace("\n", " ")
-        embed_text = "\n\n".join(filter(None, [
-            title,
-            "\n".join(headings) if headings else "",
-            body[:2000],
-        ]))
-        texts.append(embed_text)
-        metas.append({"path": rel, "title": title, "mtime": p.stat().st_mtime, "preview": preview})
+        mtime = p.stat().st_mtime
+        for blk in split_blocks(body, title):
+            all_blocks.append({"path": rel, "title": title, "mtime": mtime, **blk})
 
+    total = len(all_blocks)
+    texts = [f"{b['title']}\n\n{b['heading']}\n\n{b['text']}" for b in all_blocks]
     rows, done = [], 0
     for i in range(0, total, 32):
         batch = texts[i:i + 32]
         vecs = list(model.embed(batch))
         for j, vec in enumerate(vecs):
-            rows.append({**metas[i + j], "vector": vec.tolist()})
+            rows.append({**all_blocks[i + j], "vector": vec.tolist()})
         done += len(batch)
-        print(f"\rIndexing {done}/{total} notes...", end="", file=sys.stderr, flush=True)
+        print(f"\rIndexing {done}/{total} blocks...", end="", file=sys.stderr, flush=True)
     if total > 0:
         print(file=sys.stderr)
     return rows
@@ -304,7 +363,7 @@ def cmd_index(force):
 
     updated = len(changed)
     if updated == 0:
-        click.echo(f"Indexed {total} notes (0 updated).")
+        click.echo(f"Indexed {total} notes (0 updated, 0 blocks).")
         return
 
     if not force and changed:
@@ -315,9 +374,9 @@ def cmd_index(force):
     from fastembed import TextEmbedding
     model = TextEmbedding("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     metadata = load_metadata(vault, cache)
-    rows = embed_notes(model, vault, changed, metadata)
+    rows = embed_blocks(model, vault, changed, metadata)
     table.add(rows)
-    click.echo(f"Indexed {total} notes ({updated} updated).")
+    click.echo(f"Indexed {total} notes ({updated} updated, {len(rows)} blocks).")
 
 
 @cli.command("search")
@@ -327,10 +386,10 @@ def cmd_search(query, k):
     vault = find_vault_root()
     cache = cache_dir(vault)
     db = lancedb.connect(str(cache))
-    if "notes" not in _table_names(db):
+    if "blocks" not in _table_names(db):
         click.echo("Error: No index found. Run './vault.py index' first.", err=True)
         sys.exit(1)
-    table = db.open_table("notes")
+    table = db.open_table("blocks")
 
     from fastembed import TextEmbedding
     model = TextEmbedding("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
@@ -338,7 +397,13 @@ def cmd_search(query, k):
 
     results = table.search(vec).metric("cosine").limit(k).to_list()
     output = [
-        {"path": r["path"], "score": round(1.0 - r["_distance"], 4), "preview": r["preview"][:120]}
+        {
+            "path": r["path"],
+            "block": r["block"],
+            "heading": r["heading"],
+            "score": round(1.0 - r["_distance"], 4),
+            "text": r["text"],
+        }
         for r in results
     ]
     click.echo(json.dumps(output, ensure_ascii=False))

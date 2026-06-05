@@ -16,8 +16,8 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T001 Replace `SCHEMA` constant in `vault.py` — change table name from `notes` to `blocks` and update fields: remove `preview`, add `block` (string), `heading` (string), `text` (string); keep `path`, `title`, `mtime`, `vector[384]`
-- [ ] T002 Implement `split_blocks(path: Path, body: str, title: str) -> list[dict]` in `vault.py` — splits a note into blocks by Markdown heading boundaries; each block is `{block, heading, text}`; rules: skip blocks < 50 chars, split blocks > 2000 chars at paragraph boundaries with slug suffix `-{n}`, preamble before first heading uses slug `intro`, duplicate slugs within a note get `-2`, `-3` suffixes
+- [x] T001 Replace `SCHEMA` constant in `vault.py` — change table name from `notes` to `blocks` and update fields: remove `preview`, add `block` (string), `heading` (string), `text` (string); keep `path`, `title`, `mtime`, `vector[384]`
+- [x] T002 Implement `split_blocks(path: Path, body: str, title: str) -> list[dict]` in `vault.py` — splits a note into blocks by Markdown heading boundaries; each block is `{block, heading, text}`; rules: skip blocks < 50 chars, split blocks > 2000 chars at paragraph boundaries with slug suffix `-{n}`, preamble before first heading uses slug `intro`, duplicate slugs within a note get `-2`, `-3` suffixes
 
 **Checkpoint**: Schema and splitter ready. User story implementation can begin.
 
@@ -31,9 +31,9 @@
 
 ### Implementation for User Story 1
 
-- [ ] T003 [US1] Replace `embed_notes` with `embed_blocks` in `vault.py` — iterate over `split_blocks()` output per note, build embed text as `{title}\n\n{heading}\n\n{block_text}`, return rows with all block fields (`path`, `block`, `heading`, `title`, `mtime`, `text`, `vector`)
-- [ ] T004 [US1] Update `cmd_index` in `vault.py` — call `embed_blocks` instead of `embed_notes`; update summary line to `Indexed {total} notes ({updated} updated, {blocks} blocks).`
-- [ ] T005 [US1] Update `cmd_search` in `vault.py` — update result mapping to output `{path, block, heading, score, text}` JSON fields; remove `preview` field
+- [x] T003 [US1] Replace `embed_notes` with `embed_blocks` in `vault.py` — iterate over `split_blocks()` output per note, build embed text as `{title}\n\n{heading}\n\n{block_text}`, return rows with all block fields (`path`, `block`, `heading`, `title`, `mtime`, `text`, `vector`)
+- [x] T004 [US1] Update `cmd_index` in `vault.py` — call `embed_blocks` instead of `embed_notes`; update summary line to `Indexed {total} notes ({updated} updated, {blocks} blocks).`
+- [x] T005 [US1] Update `cmd_search` in `vault.py` — update result mapping to output `{path, block, heading, score, text}` JSON fields; remove `preview` field
 
 **Checkpoint**: `./vault.py index --force && ./vault.py search "query"` returns block-level JSON results.
 
@@ -47,8 +47,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T006 [US2] Verify `diff_notes` in `vault.py` handles multiple rows per path — `dict(zip(df["path"], df["mtime"]))` naturally deduplicates since all blocks for a note share the same mtime; confirm no change needed or fix if not correct
-- [ ] T007 [US2] Verify orphan cleanup in `cmd_index` uses `path IN (...)` delete — this already removes all blocks for deleted notes since the delete key is `path`; confirm no change needed or fix if not correct
+- [x] T006 [US2] Verify `diff_notes` in `vault.py` handles multiple rows per path — `dict(zip(df["path"], df["mtime"]))` naturally deduplicates since all blocks for a note share the same mtime; confirm no change needed or fix if not correct
+- [x] T007 [US2] Verify orphan cleanup in `cmd_index` uses `path IN (...)` delete — this already removes all blocks for deleted notes since the delete key is `path`; confirm no change needed or fix if not correct
 - [ ] T008 [US2] Run quickstart.md scenarios 3, 4, 5, 6 against live vault to validate incremental sync and idempotency
 
 **Checkpoint**: Two sequential `./vault.py index` runs with no vault changes report 0 blocks updated on the second run.
@@ -57,7 +57,7 @@
 
 ## Phase 4: Polish
 
-- [ ] T009 Update `README.md` — document that `search` now returns block-level results; update the output format description
+- [x] T009 Update `README.md` — document that `search` now returns block-level results; update the output format description
 - [ ] T010 Run all quickstart.md validation scenarios (1–6) against live vault
 
 ---
