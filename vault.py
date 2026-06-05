@@ -328,7 +328,7 @@ def cmd_search(query, k):
     cache = cache_dir(vault)
     db = lancedb.connect(str(cache))
     if "notes" not in _table_names(db):
-        click.echo("Error: No index found. Run 'vault index' first.", err=True)
+        click.echo("Error: No index found. Run './vault.py index' first.", err=True)
         sys.exit(1)
     table = db.open_table("notes")
 

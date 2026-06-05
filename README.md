@@ -5,10 +5,10 @@ A command-line tool for AI agents to search and navigate an Obsidian vault.
 ## Install
 
 ```bash
-pip install sentence-transformers lancedb pyarrow click
+pip install -r requirements.txt
 ```
 
-The first `vault index` run downloads the embedding model (~2 GB). All subsequent runs are offline.
+The first `./vault.py index` run downloads the embedding model (~470 MB). All subsequent runs are offline.
 
 ## Usage
 
@@ -25,7 +25,7 @@ Or run commands from anywhere inside your vault directory — it's detected auto
 ### Build the index
 
 ```bash
-python vault.py index
+./vault.py index
 ```
 
 Only re-embeds notes that changed since the last run. Use `--force` to rebuild from scratch.
@@ -33,29 +33,33 @@ Only re-embeds notes that changed since the last run. Use `--force` to rebuild f
 ### Search
 
 ```bash
-python vault.py search "machine learning optimization"
-python vault.py search "your query" --k 10
+./vault.py search "machine learning optimization"
+./vault.py search "your query" --k 10
 ```
 
-Returns tab-separated results: `path  score  preview`. Cross-lingual queries work — an English query will match Chinese or Japanese notes on the same topic.
+Returns a JSON array of `{path, score, preview}` objects. Cross-lingual queries work — an English query will match Chinese or Japanese notes on the same topic.
 
 ### Read a note
 
 ```bash
-python vault.py read "Note Title"
-python vault.py read "folder/Note Title.md" --head 20
+./vault.py read "Note Title"
+./vault.py read "folder/Note Title.md" --head 20
 ```
 
 ### Explore links
 
 ```bash
-python vault.py neighbors "Note Title"
+./vault.py neighbors "Note Title"
 ```
 
 Shows outgoing links and backlinks for a note.
 
+### Exclude notes from the index
+
+Place a `.vaultignore` file in your vault root with gitignore-style patterns to exclude notes from indexing.
+
 ## Notes
 
 - If two notes share the same title in different folders, use the full relative path to disambiguate.
-- `vault neighbors` requires Obsidian to be running if the metadata plugin hasn't generated its cache yet.
+- `./vault.py neighbors` requires Obsidian to be running if the metadata plugin hasn't generated its cache yet.
 - Set `VAULT_NAME` if your Obsidian vault name differs from its folder name.
