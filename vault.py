@@ -9,31 +9,34 @@ import sys
 import warnings
 from pathlib import Path
 
-warnings.filterwarnings("ignore", message=".*mean pooling.*")
-
 import click
 import lancedb
 import pyarrow as pa
+
+warnings.filterwarnings("ignore", message=".*mean pooling.*")
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-SCHEMA = pa.schema([
-    pa.field("path",    pa.string()),
-    pa.field("block",   pa.string()),
-    pa.field("title",   pa.string()),
-    pa.field("heading", pa.string()),
-    pa.field("mtime",   pa.float64()),
-    pa.field("text",    pa.string()),
-    pa.field("vector",  pa.list_(pa.float32(), 384)),
-])
+SCHEMA = pa.schema(
+    [
+        pa.field("path", pa.string()),
+        pa.field("block", pa.string()),
+        pa.field("title", pa.string()),
+        pa.field("heading", pa.string()),
+        pa.field("mtime", pa.float64()),
+        pa.field("text", pa.string()),
+        pa.field("vector", pa.list_(pa.float32(), 384)),
+    ]
+)
 
 _EXCLUDED_DIRS = {".obsidian", "_assets"}
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def find_vault_root() -> Path:
     vault_env = os.environ.get("VAULT_DIR")
@@ -66,8 +69,10 @@ def resolve_path(vault_dir: Path, arg: str) -> Path:
         return p
     stem = Path(arg).stem
     matches = [
-        f for f in vault_dir.rglob("*.md")
-        if f.stem == stem and not (_EXCLUDED_DIRS & set(f.relative_to(vault_dir).parts[:-1]))
+        f
+        for f in vault_dir.rglob("*.md")
+        if f.stem == stem
+        and not (_EXCLUDED_DIRS & set(f.relative_to(vault_dir).parts[:-1]))
     ]
     if len(matches) == 1:
         return matches[0]
@@ -87,6 +92,7 @@ def cache_dir(vault_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Metadata helpers
 # ---------------------------------------------------------------------------
+
 
 def load_metadata(vault_dir: Path, cache: Path | None = None) -> dict:
     # 1. Plugin-generated file (preferred — most up to date when Obsidian is open)
@@ -133,7 +139,9 @@ def fetch_metadata_via_obsidian(vault_name: str, cache: Path) -> dict:
     try:
         result = subprocess.run(
             ["obsidian", f"vault={vault_name}", "eval", f"code={_OBSIDIAN_EVAL_JS}"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return {}
@@ -167,16 +175,16 @@ def build_backlinks(metadata: dict) -> dict:
 # Block splitting
 # ---------------------------------------------------------------------------
 
-_HEADING_RE = re.compile(r'^(#{1,6})\s+(.*)', re.MULTILINE)
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)", re.MULTILINE)
 _MIN_BLOCK = 50
 _MAX_BLOCK = 2000
 
 
 def _slugify(text: str) -> str:
     s = text.lower()
-    s = re.sub(r'[^\w\s-]', '', s)
-    s = re.sub(r'[\s_]+', '-', s)
-    return re.sub(r'-+', '-', s).strip('-') or "block"
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = re.sub(r"[\s_]+", "-", s)
+    return re.sub(r"-+", "-", s).strip("-") or "block"
 
 
 def split_blocks(body: str, title: str) -> list:
@@ -205,13 +213,19 @@ def split_blocks(body: str, title: str) -> list:
         if len(text) <= _MAX_BLOCK:
             blocks.append({"block": slug, "heading": heading, "text": text})
         else:
-            parts = [p for p in re.split(r'\n\n+', text) if p.strip()]
+            parts = [p for p in re.split(r"\n\n+", text) if p.strip()]
             sub, sub_len, idx = [], 0, 1
             for part in parts:
                 if sub_len + len(part) > _MAX_BLOCK and sub:
                     chunk = "\n\n".join(sub).strip()
                     if len(chunk) >= _MIN_BLOCK:
-                        blocks.append({"block": f"{slug}-{idx}", "heading": heading, "text": chunk})
+                        blocks.append(
+                            {
+                                "block": f"{slug}-{idx}",
+                                "heading": heading,
+                                "text": chunk,
+                            }
+                        )
                         idx += 1
                     sub, sub_len = [part], len(part)
                 else:
@@ -220,13 +234,16 @@ def split_blocks(body: str, title: str) -> list:
             if sub:
                 chunk = "\n\n".join(sub).strip()
                 if len(chunk) >= _MIN_BLOCK:
-                    blocks.append({"block": f"{slug}-{idx}", "heading": heading, "text": chunk})
+                    blocks.append(
+                        {"block": f"{slug}-{idx}", "heading": heading, "text": chunk}
+                    )
     return blocks
 
 
 # ---------------------------------------------------------------------------
 # Index helpers
 # ---------------------------------------------------------------------------
+
 
 def _table_names(db) -> list:
     r = db.list_tables()
@@ -263,9 +280,11 @@ def is_ignored(rel: Path, patterns: list) -> bool:
             if any(fnmatch.fnmatch(part, dir_name) for part in rel.parts[:-1]):
                 return True
         else:
-            if (fnmatch.fnmatch(rel.name, pattern)
-                    or fnmatch.fnmatch(rel_str, pattern)
-                    or any(fnmatch.fnmatch(part, pattern) for part in rel.parts[:-1])):
+            if (
+                fnmatch.fnmatch(rel.name, pattern)
+                or fnmatch.fnmatch(rel_str, pattern)
+                or any(fnmatch.fnmatch(part, pattern) for part in rel.parts[:-1])
+            ):
                 return True
     return False
 
@@ -316,12 +335,14 @@ def embed_blocks(model, vault_dir: Path, paths: list, metadata: dict) -> list:
     texts = [f"{b['title']}\n\n{b['heading']}\n\n{b['text']}" for b in all_blocks]
     rows, done = [], 0
     for i in range(0, total, 32):
-        batch = texts[i:i + 32]
+        batch = texts[i : i + 32]
         vecs = list(model.embed(batch))
         for j, vec in enumerate(vecs):
             rows.append({**all_blocks[i + j], "vector": vec.tolist()})
         done += len(batch)
-        print(f"\rIndexing {done}/{total} blocks...", end="", file=sys.stderr, flush=True)
+        print(
+            f"\rIndexing {done}/{total} blocks...", end="", file=sys.stderr, flush=True
+        )
     if total > 0:
         print(file=sys.stderr)
     return rows
@@ -330,6 +351,7 @@ def embed_blocks(model, vault_dir: Path, paths: list, metadata: dict) -> list:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 @click.group()
 def cli():
@@ -356,7 +378,9 @@ def cmd_index(force):
             if not df.empty:
                 deleted = set(df["path"]) - all_rels
                 if deleted:
-                    escaped = ", ".join("'" + r.replace("'", "''") + "'" for r in deleted)
+                    escaped = ", ".join(
+                        "'" + r.replace("'", "''") + "'" for r in deleted
+                    )
                     table.delete(f"path IN ({escaped})")
         except Exception:
             pass
@@ -372,6 +396,7 @@ def cmd_index(force):
         table.delete(f"path IN ({escaped})")
 
     from fastembed import TextEmbedding
+
     model = TextEmbedding("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     metadata = load_metadata(vault, cache)
     rows = embed_blocks(model, vault, changed, metadata)
@@ -387,15 +412,16 @@ def cmd_search(query, k):
     cache = cache_dir(vault)
     db = lancedb.connect(str(cache))
     if "blocks" not in _table_names(db):
-        click.echo("Error: No index found. Run './vault.py index' first.", err=True)
+        click.echo("Error: No index found. Run 'vault index' first.", err=True)
         sys.exit(1)
     table = db.open_table("blocks")
 
     from fastembed import TextEmbedding
+
     model = TextEmbedding("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     vec = list(model.embed([query]))[0]
 
-    results = table.search(vec).metric("cosine").limit(k).to_list()
+    results = table.search(vec).metric("cosine").limit(k).to_list()  # type: ignore[attr-defined]
     output = [
         {
             "path": r["path"],
@@ -429,17 +455,28 @@ def cmd_neighbors(note_path):
 
     if metadata:
         meta = metadata.get(abs_path.name, metadata.get(rel, {}))
-        links = [lnk.get("relativePath", "") for lnk in meta.get("links", []) if lnk.get("relativePath")]
+        links = [
+            lnk.get("relativePath", "")
+            for lnk in meta.get("links", [])
+            if lnk.get("relativePath")
+        ]
         backlinks_map = build_backlinks(metadata)
         backlinks = backlinks_map.get(rel, backlinks_map.get(abs_path.name, []))
     else:
-        click.echo("Warning: Could not retrieve link data. Is Obsidian running?", err=True)
+        click.echo(
+            "Warning: Could not retrieve link data. Is Obsidian running?", err=True
+        )
         links, backlinks = [], []
 
-    click.echo(json.dumps({
-        "links": sorted(set(links)),
-        "backlinks": sorted(set(backlinks)),
-    }, ensure_ascii=False))
+    click.echo(
+        json.dumps(
+            {
+                "links": sorted(set(links)),
+                "backlinks": sorted(set(backlinks)),
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 @cli.command("read")
