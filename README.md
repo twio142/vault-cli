@@ -4,12 +4,13 @@ A command-line tool for AI agents to search and navigate an Obsidian vault.
 
 ## Install
 
+Requires [uv](https://docs.astral.sh/uv/). Dependencies are declared inline and managed automatically.
+
 ```bash
-pip install -r requirements.txt
 ln -s "$PWD/vault.py" /usr/local/bin/vault
 ```
 
-The first `vault index` run downloads the embedding model (~470 MB). All subsequent runs are offline.
+The first run downloads dependencies and the embedding model (~470 MB). All subsequent runs are offline.
 
 ## Usage
 

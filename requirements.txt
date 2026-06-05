@@ -1,4 +1,0 @@
-fastembed
-lancedb
-pyarrow
-click

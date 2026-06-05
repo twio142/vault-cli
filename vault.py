@@ -1,4 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# dependencies = [
+#   "fastembed",
+#   "lancedb",
+#   "pyarrow",
+#   "click",
+# ]
+# ///
 import fnmatch
 import hashlib
 import json
