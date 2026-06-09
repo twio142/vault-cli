@@ -373,10 +373,11 @@ def cli():
 
 @cli.command("index")
 @click.option("--force", is_flag=True, default=False)
-def cmd_index(force):
+@click.option("--dry-run", is_flag=True, default=False)
+def cmd_index(force, dry_run):
     vault = find_vault_root()
     cache = cache_dir(vault)
-    table = open_table(cache, force)
+    table = open_table(cache, force and not dry_run)
     all_paths = walk_vault(vault)
     total = len(all_paths)
 
@@ -384,12 +385,40 @@ def cmd_index(force):
 
     if force:
         changed = all_paths
+        deleted: set = set()
     else:
         changed, stored = diff_notes(table, vault, all_paths)
         deleted = set(stored.keys()) - all_rels
-        if deleted:
+        if not dry_run and deleted:
             escaped = ", ".join("'" + r.replace("'", "''") + "'" for r in deleted)
             table.delete(f"path IN ({escaped})")
+
+    if dry_run:
+        updated = len(changed)
+        if not changed and not deleted:
+            click.echo("Nothing to update.")
+            return
+        metadata = load_metadata(vault, cache)
+        block_count = sum(
+            len(
+                split_blocks(
+                    p.read_text(encoding="utf-8", errors="replace"),
+                    metadata.get(p.name, {}).get("fileName", p.stem),
+                )
+            )
+            for p in changed
+        )
+        parts = []
+        if updated:
+            parts.append(
+                f"index {updated} note{'s' if updated != 1 else ''} ({block_count} block{'s' if block_count != 1 else ''})"
+            )
+        if deleted:
+            parts.append(
+                f"delete {len(deleted)} note{'s' if len(deleted) != 1 else ''}"
+            )
+        click.echo(f"Would {', '.join(parts)}.")
+        return
 
     updated = len(changed)
     if updated == 0:
