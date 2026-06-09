@@ -41,7 +41,7 @@ vault neighbors "<title or relative path>"
 Natural language queries work. The model is multilingual — an English query surfaces Chinese or German notes on the same topic.
 
 ```bash
-vault search "epistemic humility" --k 5
+vault search "epistemic humility" -k 5
 ```
 
 Be specific. "motivation as a limited resource" beats "motivation". For broad topics, run multiple focused queries.
@@ -62,6 +62,6 @@ Use when a note looks like a hub, or when you want to explore a topic cluster be
 ## Notes
 
 - Scores below 0.4 are noise. If all results are below 0.5, the vault likely has little on the topic — say so.
-- Use `--k 10` or more for survey tasks or when initial results feel narrow.
+- Use `-k 10` or more for survey tasks or when initial results feel narrow.
 - If `read` or `neighbors` reports an ambiguous title, use the full `path` from the search result.
 - If `vault` fails to find the vault, `VAULT_DIR` is likely not set. Tell the user and ask them to add it to their shell profile.

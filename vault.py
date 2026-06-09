@@ -366,15 +366,27 @@ def embed_blocks(model, vault_dir: Path, paths: list, metadata: dict) -> list:
 # ---------------------------------------------------------------------------
 
 
-@click.group()
+_HELP_SETTINGS = {"help_option_names": ["-h", "--help"]}
+
+
+@click.group(context_settings=_HELP_SETTINGS)
 def cli():
-    pass
+    """Semantic search and navigation for your Obsidian vault."""
 
 
-@cli.command("index")
-@click.option("--force", is_flag=True, default=False)
-@click.option("--dry-run", is_flag=True, default=False)
+@cli.command("index", context_settings=_HELP_SETTINGS)
+@click.option(
+    "--force", "-f", is_flag=True, default=False, help="Rebuild index from scratch."
+)
+@click.option(
+    "--dry-run",
+    "-d",
+    is_flag=True,
+    default=False,
+    help="Preview changes without writing.",
+)
 def cmd_index(force, dry_run):
+    """Build or update the semantic search index."""
     vault = find_vault_root()
     cache = cache_dir(vault)
     table = open_table(cache, force and not dry_run)
@@ -439,10 +451,11 @@ def cmd_index(force, dry_run):
     click.echo(f"Indexed {total} notes ({updated} updated, {len(rows)} blocks).")
 
 
-@cli.command("search")
+@cli.command("search", context_settings=_HELP_SETTINGS)
 @click.argument("query")
-@click.option("--k", default=5, type=int)
+@click.option("-k", default=5, type=int, help="Number of results.", show_default=True)
 def cmd_search(query, k):
+    """Search the index with a natural-language query."""
     vault = find_vault_root()
     cache = cache_dir(vault)
     db = lancedb.connect(str(cache))
@@ -470,9 +483,10 @@ def cmd_search(query, k):
     click.echo(json.dumps(output, ensure_ascii=False))
 
 
-@cli.command("neighbors")
+@cli.command("neighbors", context_settings=_HELP_SETTINGS)
 @click.argument("note_path")
 def cmd_neighbors(note_path):
+    """List links and backlinks for a note."""
     vault = find_vault_root()
     try:
         abs_path = resolve_path(vault, note_path)
@@ -514,10 +528,13 @@ def cmd_neighbors(note_path):
     )
 
 
-@cli.command("read")
+@cli.command("read", context_settings=_HELP_SETTINGS)
 @click.argument("note_path")
-@click.option("--head", default=None, type=int)
+@click.option(
+    "--head", "-H", default=None, type=int, help="Print only the first N lines."
+)
 def cmd_read(note_path, head):
+    """Print the contents of a note."""
     vault = find_vault_root()
     try:
         abs_path = resolve_path(vault, note_path)
