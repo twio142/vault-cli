@@ -310,18 +310,23 @@ def walk_vault(vault_dir: Path) -> list:
     return result
 
 
-def diff_notes(table, vault_dir: Path, all_paths: list) -> list:
+def diff_notes(table, vault_dir: Path, all_paths: list) -> tuple[list, dict]:
+    stored = {}
     try:
-        df = table.to_pandas()
-        stored = {} if df.empty else dict(zip(df["path"], df["mtime"]))
-    except Exception:
-        stored = {}
-    changed = []
-    for p in all_paths:
-        rel = str(p.relative_to(vault_dir))
-        if rel not in stored or stored[rel] != p.stat().st_mtime:
-            changed.append(p)
-    return changed
+        data = table.search().select(["path", "mtime"]).limit(None).to_arrow()
+        stored = dict(zip(data["path"].to_pylist(), data["mtime"].to_pylist()))
+    except Exception as e:
+        print(
+            f"  Warning: index read failed ({e}); re-indexing all notes.",
+            file=sys.stderr,
+        )
+    changed = [
+        p
+        for p in all_paths
+        if str(p.relative_to(vault_dir)) not in stored
+        or stored[str(p.relative_to(vault_dir))] != p.stat().st_mtime
+    ]
+    return changed, stored
 
 
 def embed_blocks(model, vault_dir: Path, paths: list, metadata: dict) -> list:
@@ -380,18 +385,11 @@ def cmd_index(force):
     if force:
         changed = all_paths
     else:
-        changed = diff_notes(table, vault, all_paths)
-        try:
-            df = table.to_pandas()
-            if not df.empty:
-                deleted = set(df["path"]) - all_rels
-                if deleted:
-                    escaped = ", ".join(
-                        "'" + r.replace("'", "''") + "'" for r in deleted
-                    )
-                    table.delete(f"path IN ({escaped})")
-        except Exception:
-            pass
+        changed, stored = diff_notes(table, vault, all_paths)
+        deleted = set(stored.keys()) - all_rels
+        if deleted:
+            escaped = ", ".join("'" + r.replace("'", "''") + "'" for r in deleted)
+            table.delete(f"path IN ({escaped})")
 
     updated = len(changed)
     if updated == 0:
