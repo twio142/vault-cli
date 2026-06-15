@@ -97,6 +97,12 @@ def cache_dir(vault_path: Path) -> Path:
     return d
 
 
+def model_cache_dir() -> Path:
+    d = Path.home() / ".cache" / "vault-cli" / "models"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 # ---------------------------------------------------------------------------
 # Metadata helpers
 # ---------------------------------------------------------------------------
@@ -444,7 +450,10 @@ def cmd_index(force, dry_run):
 
     from fastembed import TextEmbedding
 
-    model = TextEmbedding("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+    model = TextEmbedding(
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        cache_dir=str(model_cache_dir()),
+    )
     metadata = load_metadata(vault, cache)
     rows = embed_blocks(model, vault, changed, metadata)
     table.add(rows)
@@ -466,7 +475,10 @@ def cmd_search(query, k):
 
     from fastembed import TextEmbedding
 
-    model = TextEmbedding("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+    model = TextEmbedding(
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        cache_dir=str(model_cache_dir()),
+    )
     vec = list(model.embed([query]))[0]
 
     results = table.search(vec).metric("cosine").limit(k).to_list()  # type: ignore[attr-defined]
