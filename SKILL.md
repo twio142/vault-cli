@@ -1,13 +1,13 @@
 ---
 name: vault-cli
-description: Search, read, and navigate an Obsidian vault. Use proactively before writing or reasoning about any topic the user may have notes on.
+description: Search and read a markdown directory. Use proactively before writing or reasoning about any topic the user may have notes on.
 ---
 
 # Vault CLI
 
 ## Session Start
 
-Run a quick incremental refresh before using `vault` **for the first time** (use `run_in_background: true`):
+**Always run this unconditionally at the start of every session, before any other vault command** (use `run_in_background: true`):
 
 ```bash
 vault index
@@ -18,15 +18,10 @@ This only re-embeds changed notes and takes a few seconds. Use `--force` only if
 ## Commands
 
 ```bash
-vault search "<query>" [-k N]      # semantic search, default k=5
 vault read "<title or relative path>" [--head N]
-vault neighbors "<title or relative path>"
-```
 
-`search` returns a JSON array:
-
-```json
-[{"path": "folder/Note.md", "block": "section-slug", "heading": "Section", "score": 0.74, "text": "..."}]
+vault search "<query>" [-k N]      # semantic search, default k=5
+# returns: [{"path": "folder/Note.md", "block": "section-slug", "heading": "Section", "score": 0.74, "text": "..."}]
 ```
 
 - `path` — note path relative to vault root
@@ -36,32 +31,23 @@ vault neighbors "<title or relative path>"
 
 ## Workflow
 
-**1. Search**
+**1. Find the note (when you don't have an exact path)**
 
-Natural language queries work. The model is multilingual — an English query surfaces Chinese or German notes on the same topic.
+If the user refers to a note by topic or description rather than giving you an exact path, run `vault search` first (see Commands). Use the `path` from the result for any subsequent `read` call. Never guess or invent a path — if the user didn't give you one, search for it.
 
-```bash
-vault search "epistemic humility" -k 5
-```
+**2. Search**
 
-Be specific. "motivation as a limited resource" beats "motivation". For broad topics, run multiple focused queries.
+Natural language queries work. The model is multilingual — an English query surfaces Chinese or German notes on the same topic. Be specific: "motivation as a limited resource" beats "motivation". For broad topics, run multiple focused queries.
 
-**2. Decide whether the block text is enough**
+**3. Decide whether the block text is enough**
 
 Each result contains the matched passage. If `text` answers the question, skip `read`. Use `read` when you need the full note structure, frontmatter, or sections that didn't surface in search. `--head 20` is useful for a quick scan before reading in full.
 
-**3. Expand via wikilinks when useful**
-
-```bash
-vault neighbors "Epistemic Humility"
-# returns: {"links": [...], "backlinks": [...]}
-```
-
-Use when a note looks like a hub, or when you want to explore a topic cluster beyond what search surfaces.
-
 ## Notes
 
+- **Never call `vault read` with a guessed or invented path.** Always run `vault search` first and use the `path` field from the results. No exceptions.
+- **If any `vault` command exits with an error, stop immediately and report the exact error to the user.** Do not fall back to `grep`, `find`, etc.
 - Scores below 0.4 are noise. If all results are below 0.5, the vault likely has little on the topic — say so.
 - Use `-k 10` or more for survey tasks or when initial results feel narrow.
-- If `read` or `neighbors` reports an ambiguous title, use the full `path` from the search result.
+- If `read` reports an ambiguous title, use the full `path` from the search result.
 - If `vault` fails to find the vault, `VAULT_DIR` is likely not set. Tell the user and ask them to add it to their shell profile.

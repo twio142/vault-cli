@@ -1,6 +1,6 @@
 # vault-cli
 
-A command-line tool for AI agents to search and navigate an Obsidian vault.
+A command-line tool for AI agents to search and read a directory of Markdown notes.
 
 ## Install
 
@@ -14,15 +14,15 @@ The first run downloads dependencies and the embedding model (~470 MB). All subs
 
 ## Usage
 
-### Point to your vault
+### Point to your notes
 
 Either set `VAULT_DIR`:
 
 ```bash
-export VAULT_DIR=/path/to/your/vault
+export VAULT_DIR=/path/to/your/notes
 ```
 
-Or run commands from anywhere inside your vault directory — it's detected automatically.
+Or run commands from anywhere inside your notes directory — it's detected automatically by looking for a `.vaultignore` file (up to 3 directory layers up).
 
 ### Build the index
 
@@ -48,14 +48,6 @@ vault read "Note Title"
 vault read "folder/Note Title.md" --head 20
 ```
 
-### Explore links
-
-```bash
-vault neighbors "Note Title"
-```
-
-Shows outgoing links and backlinks for a note.
-
 ### Exclude notes from the index
 
 Place a `.vaultignore` file in your vault root with gitignore-style patterns to exclude notes from indexing.
@@ -71,5 +63,3 @@ cp SKILL.md ~/.claude/skills/vault-cli/SKILL.md
 ## Notes
 
 - If two notes share the same title in different folders, use the full relative path to disambiguate.
-- `vault neighbors` requires Obsidian to be running if the metadata plugin hasn't generated its cache yet.
-- Set `VAULT_NAME` if your Obsidian vault name differs from its folder name.
