@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 import warnings
 from pathlib import Path
@@ -39,7 +38,7 @@ SCHEMA = pa.schema(
     ]
 )
 
-_EXCLUDED_DIRS = {".obsidian", "_assets"}
+_EXCLUDED_DIRS = {".git", ".obsidian", ".trash", ".agents", ".gemini", ".claude", ".github"}
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -50,14 +49,14 @@ def find_vault_root() -> Path:
     vault_env = os.environ.get("VAULT_DIR")
     if vault_env:
         p = Path(vault_env).expanduser().resolve()
-        if (p / ".obsidian").is_dir():
+        if (p / ".vaultignore").is_file():
             return p
         raise SystemExit(
-            f"Error: VAULT_DIR='{vault_env}' but no .obsidian/ directory found there."
+            f"Error: VAULT_DIR='{vault_env}' but no .vaultignore file found there."
         )
     candidate = Path.cwd()
-    while True:
-        if (candidate / ".obsidian").is_dir():
+    for _ in range(3):
+        if (candidate / ".vaultignore").is_file():
             return candidate
         parent = candidate.parent
         if parent == candidate:
@@ -106,83 +105,6 @@ def model_cache_dir() -> Path:
 # ---------------------------------------------------------------------------
 # Metadata helpers
 # ---------------------------------------------------------------------------
-
-
-def load_metadata(vault_dir: Path, cache: Path | None = None) -> dict:
-    # 1. Plugin-generated file (preferred — most up to date when Obsidian is open)
-    meta_path = (
-        vault_dir / ".obsidian" / "plugins" / "metadata-extractor" / "metadata.json"
-    )
-    if meta_path.exists():
-        try:
-            with open(meta_path, encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            pass
-    # 2. Cached copy written by fetch_metadata_via_obsidian
-    if cache is not None:
-        cached = cache / "metadata.json"
-        if cached.exists():
-            try:
-                with open(cached, encoding="utf-8") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError):
-                pass
-    return {}
-
-
-_OBSIDIAN_EVAL_JS = (
-    "const r={};"
-    "for(const f of app.vault.getMarkdownFiles()){"
-    "const c=app.metadataCache.getFileCache(f);"
-    "if(!c)continue;"
-    "r[f.name]={"
-    "fileName:f.basename,"
-    "relativePath:f.path,"
-    "tags:(c.tags||[]).map(t=>t.tag.slice(1)),"
-    "headings:(c.headings||[]).map(h=>({heading:h.heading,level:h.level})),"
-    "links:(c.links||[]).map(l=>({link:l.link,"
-    "relativePath:(app.metadataCache.getFirstLinkpathDest(l.link,f.path)||{path:l.link+'.md'}).path"
-    "}))}}"
-    "console.log(JSON.stringify(r));"
-)
-
-
-def fetch_metadata_via_obsidian(vault_name: str, cache: Path) -> dict:
-    """Export full vault metadata via obsidian CLI eval and cache to disk."""
-    try:
-        result = subprocess.run(
-            ["obsidian", f"vault={vault_name}", "eval", f"code={_OBSIDIAN_EVAL_JS}"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return {}
-    if result.returncode != 0 or not result.stdout.strip():
-        return {}
-    try:
-        metadata = json.loads(result.stdout.strip())
-    except json.JSONDecodeError:
-        return {}
-    out = cache / "metadata.json"
-    try:
-        with open(out, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, ensure_ascii=False)
-    except OSError:
-        pass
-    return metadata
-
-
-def build_backlinks(metadata: dict) -> dict:
-    backlinks: dict = {}
-    for _filename, meta in metadata.items():
-        src = meta.get("relativePath", _filename)
-        for link in meta.get("links", []):
-            target = link.get("relativePath", "")
-            if target:
-                backlinks.setdefault(target, []).append(src)
-    return backlinks
 
 
 # ---------------------------------------------------------------------------
@@ -485,51 +407,6 @@ def cmd_search(query, k):
         for r in results
     ]
     click.echo(json.dumps(output, ensure_ascii=False))
-
-
-@cli.command("neighbors", context_settings=_HELP_SETTINGS)
-@click.argument("note_path")
-def cmd_neighbors(note_path):
-    """List links and backlinks for a note."""
-    vault = find_vault_root()
-    try:
-        abs_path = resolve_path(vault, note_path)
-    except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-    rel = str(abs_path.relative_to(vault))
-    cache = cache_dir(vault)
-    metadata = load_metadata(vault, cache)
-
-    if not metadata:
-        vault_name = os.environ.get("VAULT_NAME", vault.name)
-        metadata = fetch_metadata_via_obsidian(vault_name, cache)
-
-    if metadata:
-        meta = metadata.get(abs_path.name, metadata.get(rel, {}))
-        links = [
-            lnk.get("relativePath", "")
-            for lnk in meta.get("links", [])
-            if lnk.get("relativePath")
-        ]
-        backlinks_map = build_backlinks(metadata)
-        backlinks = backlinks_map.get(rel, backlinks_map.get(abs_path.name, []))
-    else:
-        click.echo(
-            "Warning: Could not retrieve link data. Is Obsidian running?", err=True
-        )
-        links, backlinks = [], []
-
-    click.echo(
-        json.dumps(
-            {
-                "links": sorted(set(links)),
-                "backlinks": sorted(set(backlinks)),
-            },
-            ensure_ascii=False,
-        )
-    )
 
 
 @cli.command("read", context_settings=_HELP_SETTINGS)
