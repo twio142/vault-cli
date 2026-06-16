@@ -201,7 +201,7 @@ def _slugify(text: str) -> str:
     return re.sub(r"-+", "-", s).strip("-") or "block"
 
 
-def split_blocks(body: str, title: str) -> list:
+def split_blocks(body: str) -> list:
     lines = body.splitlines(keepends=True)
     segments = []
     cur_heading, cur_lines = "", []
@@ -335,19 +335,18 @@ def diff_notes(table, vault_dir: Path, all_paths: list) -> tuple[list, dict]:
     return changed, stored
 
 
-def embed_blocks(model, vault_dir: Path, paths: list, metadata: dict) -> list:
+def embed_blocks(model, vault_dir: Path, paths: list) -> list:
     all_blocks = []
     for p in paths:
         rel = str(p.relative_to(vault_dir))
-        meta = metadata.get(p.name, metadata.get(rel, {}))
-        title = meta.get("fileName", p.stem)
+        title = p.stem
         try:
             body = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             print(f"  skipping {rel} (not readable)", file=sys.stderr)
             continue
         mtime = p.stat().st_mtime
-        for blk in split_blocks(body, title):
+        for blk in split_blocks(body):
             all_blocks.append({"path": rel, "title": title, "mtime": mtime, **blk})
 
     total = len(all_blocks)
@@ -416,14 +415,8 @@ def cmd_index(force, dry_run):
         if not changed and not deleted:
             click.echo("Nothing to update.")
             return
-        metadata = load_metadata(vault, cache)
         block_count = sum(
-            len(
-                split_blocks(
-                    p.read_text(encoding="utf-8", errors="replace"),
-                    metadata.get(p.name, {}).get("fileName", p.stem),
-                )
-            )
+            len(split_blocks(p.read_text(encoding="utf-8", errors="replace")))
             for p in changed
         )
         parts = []
@@ -454,8 +447,7 @@ def cmd_index(force, dry_run):
         "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         cache_dir=str(model_cache_dir()),
     )
-    metadata = load_metadata(vault, cache)
-    rows = embed_blocks(model, vault, changed, metadata)
+    rows = embed_blocks(model, vault, changed)
     table.add(rows)
     click.echo(f"Indexed {total} notes ({updated} updated, {len(rows)} blocks).")
 
